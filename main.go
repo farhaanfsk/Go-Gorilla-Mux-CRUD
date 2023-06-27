@@ -1,103 +1,47 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
+	"flag"
 	"fmt"
 	"net/http"
 
-	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+
+	"github.com/farhaanfsk/Go-Gorilla-Mux-CRUD/handler"
+	"github.com/farhaanfsk/Go-Gorilla-Mux-CRUD/repository"
+	"github.com/farhaanfsk/Go-Gorilla-Mux-CRUD/service"
 	"github.com/gorilla/mux"
 )
 
-type Employee struct {
-	Id      uuid.UUID
-	Name    string
-	Address Address
-}
-
-type Address struct {
-	City    string
-	State   string
-	Country string
-}
-
-var Employees []Employee
-
-func getEmployees(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Println(Employees)
-
-	json.NewEncoder(w).Encode(Employees)
-}
-
-func createEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var e Employee
-	json.NewDecoder(r.Body).Decode(&e)
-	e.Id = uuid.New()
-	Employees = append(Employees, e)
-	json.NewEncoder(w).Encode(e)
-}
-
-func getEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	id := mux.Vars(r)["id"]
-	for i := range Employees {
-		if Employees[i].Id.String() == id {
-			json.NewEncoder(w).Encode(Employees[i])
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode("Employee not found")
-
-}
-
-func deleteEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	id := mux.Vars(r)["id"]
-	for i := range Employees {
-		if Employees[i].Id.String() == id {
-			Employees = append(Employees[:i], Employees[i+1:]...)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode("Employee not found")
-}
-
-func updateEmployee(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var e Employee
-	json.NewDecoder(r.Body).Decode(&e)
-	for i := range Employees {
-		if Employees[i].Id == e.Id {
-			Employees[i] = e
-			json.NewEncoder(w).Encode(e)
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode("Employee not found")
-}
+var (
+	dbName = flag.String("dbname", "Employee", "Database name")
+	dbHost = flag.String("dbhost", "127.0.0.1", "Database host")
+	dbPort = flag.String("dbport", "3000", "Port for the database")
+	dbUser = flag.String("dbuser", "postgres", "Database user")
+	dbPass = flag.String("dbpass", "postgres", "Database password")
+)
 
 func main() {
+	rep := repository.NewRepo(InitDb(*dbHost, *dbPort, *dbUser, *dbPass, *dbName))
+	s := service.NewService(rep)
+	h := handler.NewHandler(&s)
 	router := mux.NewRouter()
-	Employees = append(Employees, Employee{
-		Id:   uuid.New(),
-		Name: "Test1",
-		Address: Address{
-			City:    "hyd",
-			State:   "AP",
-			Country: "Ind",
-		},
-	})
-	router.HandleFunc("/employees", getEmployees).Methods("GET")
-	router.HandleFunc("/employees/{id}", getEmployee).Methods("GET")
-	router.HandleFunc("/employees", createEmployee).Methods("POST")
-	router.HandleFunc("/employees/{id}", deleteEmployee).Methods("DELETE")
-	router.HandleFunc("/employees", updateEmployee).Methods("PUT")
+	router.HandleFunc("/employees", h.GetEmployees).Methods("GET")
+	router.HandleFunc("/employees/{id}", h.GetEmployee).Methods("GET")
+	router.HandleFunc("/employees", h.CreateEmployee).Methods("POST")
+	router.HandleFunc("/employees/{id}", h.DeleteEmployee).Methods("DELETE")
+	router.HandleFunc("/employees", h.UpdateEmployee).Methods("PUT")
 	http.ListenAndServe(":1234", router)
+}
+
+func InitDb(dbHost, dbPort, dbUser, dbPass, dbName string) *sql.DB {
+	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		dbHost, dbPort, dbUser, dbPass, dbName)
+
+	db, err := sql.Open("postgres", psqlInfo)
+	if err != nil {
+		fmt.Println("Database connection error", err.Error())
+	}
+	return db
 }
